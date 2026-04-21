@@ -38,28 +38,28 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ inputs.region }}
-      
+
       - name: Run AWS Resource Manager
         env:
           RESOURCE: ${{ inputs.resource }}
@@ -77,11 +77,20 @@ jobs:
             $([ -n "$GITHUB_REPO" ] && echo "--github-repo $GITHUB_REPO") \
             $([ "$RESOURCE" == "github" ] && echo "--github-token $GITHUB_TOKEN") \
             --json-output
-      
+
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: aws-operation-logs
           path: logs/
           retention-days: 7
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "### AWS Resource Manager Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource**: ${{ inputs.resource }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Operation**: ${{ inputs.operation }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ inputs.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: Completed" >> $GITHUB_STEP_SUMMARY
