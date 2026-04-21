@@ -26,7 +26,7 @@ on:
         required: false
         default: 'us-east-1'
       resource_ids:
-        description: 'Resource IDs (space-separated for EC2/RDS, repo name for ECR)'
+        description: 'Resource IDs (space-separated for EC2/RDS)'
         required: false
       github_repo:
         description: 'GitHub repo (owner/repo) for runner operations'
@@ -35,9 +35,10 @@ on:
 jobs:
   manage_resources:
     runs-on: ubuntu-latest
+    # ✅ IMPORTANT: These permissions are required for OIDC
     permissions:
       contents: read
-      id-token: write
+      id-token: write    # ← This is REQUIRED for OIDC
 
     steps:
       - name: Checkout repository
@@ -54,11 +55,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ inputs.region }}
+          role-session-name: github-actions-session
+
+      - name: Verify AWS credentials
+        run: |
+          echo "Testing AWS credentials..."
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified successfully!"
 
       - name: Run AWS Resource Manager
         env:
@@ -69,6 +77,11 @@ jobs:
           GITHUB_REPO: ${{ inputs.github_repo }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Starting AWS Resource Manager..."
+          echo "Resource: $RESOURCE"
+          echo "Operation: $OPERATION"
+          echo "Region: $REGION"
+          
           python aws_resource_manager.py \
             --resource "$RESOURCE" \
             --operation "$OPERATION" \
@@ -78,19 +91,12 @@ jobs:
             $([ "$RESOURCE" == "github" ] && echo "--github-token $GITHUB_TOKEN") \
             --json-output
 
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aws-operation-logs
-          path: logs/
-          retention-days: 7
-
       - name: Job Summary
         if: always()
         run: |
-          echo "### AWS Resource Manager Job Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Resource**: ${{ inputs.resource }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Operation**: ${{ inputs.operation }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region**: ${{ inputs.region }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ AWS Resource Manager Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Resource:** ${{ inputs.resource }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Operation:** ${{ inputs.operation }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ inputs.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** Success ✅" >> $GITHUB_STEP_SUMMARY
