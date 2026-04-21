@@ -1,0 +1,42 @@
+# AWS Resource Manager Configuration Example
+
+# AWS Settings
+aws:
+  region: us-east-1
+  profile: default  # AWS profile to use
+
+# EC2 Configuration
+ec2:
+  # List of instances to manage
+  instances:
+    - id: i-0123456789abcdef0
+      name: web-server-01
+      environment: production
+    - id: i-0987654321fedcba0
+      name: web-server-02
+      environment: production
+
+# RDS Configuration  
+rds:
+  # Database instances to manage
+  databases:
+    - identifier: prod-mysql-db
+      engine: mysql
+      environment: production
+    - identifier: dev-mysql-db
+      engine: mysql
+      environment: development
+
+# ECR Configuration
+ecr:
+  repositories:
+    - name: my-app
+      environment: production
+    - name: my-service
+      environment: staging
+
+# GitHub Configuration
+github:
+  repositories:
+    - name: owner/repo-name
+      runners: true
