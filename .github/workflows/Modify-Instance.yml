@@ -1,43 +1,21 @@
-name: AWS Resource Manager
+name: Modify EC2 Instance Type
 
 on:
   workflow_dispatch:
     inputs:
-      resource:
-        description: 'Resource type to manage'
-        required: true
-        type: choice
-        options:
-          - ec2
-          - rds
-          - ecr
-          - github
-      operation:
-        description: 'Operation to perform'
-        required: true
-        type: choice
-        options:
-          - start
-          - stop
-          - status
-          - list
-          - change-instance-type   # ✅ New operation
       region:
         description: 'AWS region'
-        required: false
-        default: 'eu-north-1'
+        required: true
+        default: 'us-east-1'
       resource_ids:
-        description: 'Resource IDs (space-separated for EC2/RDS)'
-        required: false
+        description: 'EC2 Instance IDs (space-separated)'
+        required: true
       instance_type:
         description: 'New EC2 instance type (e.g., t3.micro)'
-        required: false
-      github_repo:
-        description: 'GitHub repo (owner/repo) for runner operations'
-        required: false
+        required: true
 
 jobs:
-  manage_resources:
+  modify_instance_type:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,44 +39,40 @@ jobs:
       - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # ✅ Same role as start/stop
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # ✅ Same IAM role as start/stop
           aws-region: ${{ inputs.region }}
           role-session-name: github-actions-session
 
       - name: Verify AWS credentials
         run: aws sts get-caller-identity
 
-      - name: Run AWS Resource Manager
-        env:
-          RESOURCE: ${{ inputs.resource }}
-          OPERATION: ${{ inputs.operation }}
-          REGION: ${{ inputs.region }}
-          RESOURCE_IDS: ${{ inputs.resource_ids }}
-          INSTANCE_TYPE: ${{ inputs.instance_type }}
-          GITHUB_REPO: ${{ inputs.github_repo }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Change EC2 Instance Type
         run: |
-          echo "Starting AWS Resource Manager..."
-          echo "Resource: $RESOURCE"
-          echo "Operation: $OPERATION"
-          echo "Region: $REGION"
+          echo "🔧 Changing EC2 instance type..."
+          for id in ${{ inputs.resource_ids }}; do
+            echo "Stopping instance $id..."
+            aws ec2 stop-instances --instance-ids $id --region ${{ inputs.region }}
 
-          python aws_resource_manager.py \
-            --resource "$RESOURCE" \
-            --operation "$OPERATION" \
-            --region "$REGION" \
-            $([ -n "$RESOURCE_IDS" ] && echo "--ids $RESOURCE_IDS") \
-            $([ -n "$INSTANCE_TYPE" ] && echo "--instance-type $INSTANCE_TYPE") \
-            $([ -n "$GITHUB_REPO" ] && echo "--github-repo $GITHUB_REPO") \
-            $([ "$RESOURCE" == "github" ] && echo "--github-token $GITHUB_TOKEN") \
-            --json-output
+            echo "Waiting until instance $id is stopped..."
+            aws ec2 wait instance-stopped --instance-ids $id --region ${{ inputs.region }}
+
+            echo "Modifying instance type to ${{ inputs.instance_type }}..."
+            aws ec2 modify-instance-attribute \
+              --instance-id $id \
+              --instance-type "{\"Value\": \"${{ inputs.instance_type }}\"}" \
+              --region ${{ inputs.region }}
+
+            echo "Starting instance $id..."
+            aws ec2 start-instances --instance-ids $id --region ${{ inputs.region }}
+
+            echo "✅ Instance $id changed to type ${{ inputs.instance_type }}"
+          done
 
       - name: Job Summary
         if: always()
         run: |
-          echo "### ✅ AWS Resource Manager Completed" >> $GITHUB_STEP_SUMMARY
-          echo "**Resource:** ${{ inputs.resource }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Operation:** ${{ inputs.operation }}" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ EC2 Instance Type Modification Completed" >> $GITHUB_STEP_SUMMARY
           echo "**Region:** ${{ inputs.region }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Instance Type:** ${{ inputs.instance_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Instance IDs:** ${{ inputs.resource_ids }}" >> $GITHUB_STEP_SUMMARY
+          echo "**New Type:** ${{ inputs.instance_type }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** Success ✅" >> $GITHUB_STEP_SUMMARY
