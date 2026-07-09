@@ -1,4 +1,4 @@
-name: AWS Resource Manager
+name: Start & Stop Ec2 node
 
 on:
   workflow_dispatch:
