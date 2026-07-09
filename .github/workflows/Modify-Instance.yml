@@ -9,6 +9,9 @@ on:
         type: choice
         options:
           - ec2
+          - rds
+          - ecr
+          - github
       operation:
         description: 'Operation to perform'
         required: true
@@ -24,10 +27,13 @@ on:
         required: false
         default: 'eu-north-1'
       resource_ids:
-        description: 'Resource IDs (space-separated for EC2)'
+        description: 'Resource IDs (space-separated for EC2/RDS)'
         required: false
       instance_type:
         description: 'New EC2 instance type (e.g., t3.micro)'
+        required: false
+      github_repo:
+        description: 'GitHub repo (owner/repo) for runner operations'
         required: false
 
 jobs:
@@ -35,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # ✅ same OIDC role as start/stop
+      id-token: write   # ✅ Required for OIDC
 
     steps:
       - name: Checkout repository
@@ -55,7 +61,7 @@ jobs:
       - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # ✅ same role
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}   # ✅ Same role as start/stop
           aws-region: ${{ inputs.region }}
           role-session-name: github-actions-session
 
@@ -69,29 +75,23 @@ jobs:
           REGION: ${{ inputs.region }}
           RESOURCE_IDS: ${{ inputs.resource_ids }}
           INSTANCE_TYPE: ${{ inputs.instance_type }}
+          GITHUB_REPO: ${{ inputs.github_repo }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Starting AWS Resource Manager..."
           echo "Resource: $RESOURCE"
           echo "Operation: $OPERATION"
           echo "Region: $REGION"
 
-          if [ "$OPERATION" = "change-instance-type" ]; then
-            for id in $RESOURCE_IDS; do
-              echo "Stopping instance $id..."
-              aws ec2 stop-instances --instance-ids $id --region $REGION
-              echo "Modifying instance type to $INSTANCE_TYPE..."
-              aws ec2 modify-instance-attribute --instance-id $id --instance-type "{\"Value\": \"$INSTANCE_TYPE\"}" --region $REGION
-              echo "Starting instance $id..."
-              aws ec2 start-instances --instance-ids $id --region $REGION
-              echo "✅ Instance $id changed to type $INSTANCE_TYPE"
-            done
-          else
-            python aws_resource_manager.py \
-              --resource "$RESOURCE" \
-              --operation "$OPERATION" \
-              --region "$REGION" \
-              $([ -n "$RESOURCE_IDS" ] && echo "--ids $RESOURCE_IDS") \
-              --json-output
-          fi
+          python aws_resource_manager.py \
+            --resource "$RESOURCE" \
+            --operation "$OPERATION" \
+            --region "$REGION" \
+            $([ -n "$RESOURCE_IDS" ] && echo "--ids $RESOURCE_IDS") \
+            $([ -n "$INSTANCE_TYPE" ] && echo "--instance-type $INSTANCE_TYPE") \
+            $([ -n "$GITHUB_REPO" ] && echo "--github-repo $GITHUB_REPO") \
+            $([ "$RESOURCE" == "github" ] && echo "--github-token $GITHUB_TOKEN") \
+            --json-output
 
       - name: Job Summary
         if: always()
